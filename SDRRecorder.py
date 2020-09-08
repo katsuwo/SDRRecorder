@@ -3,6 +3,7 @@ import sys
 import paramiko
 import re
 import threading
+import time
 
 CONFIGFILE = './config.yaml'
 
@@ -32,9 +33,17 @@ class SDRRecorder:
 		if 'Host' not in config:
 			return False
 
+		if 'sock2wav' not in config:
+			return False
+
+		sock2wav = config['sock2wav']
+		if 'path' not in sock2wav:
+			return False
+
 		host = config['Host']
 		if 'ip_addr' not in host or 'Receivers' not in host:
 			return False
+
 		if not host['ip_addr']:
 			return False
 
@@ -61,6 +70,7 @@ class SDRRecorder:
 		host = config['Host']['ip_addr']
 		user = config['Host']['user']
 		password = config['Host']['password']
+		known_hosts = config['hostkey']['known_hosts_file']
 
 		client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 		client.load_host_keys(filename="/home/katsuwo/.ssh/known_hosts")
@@ -77,21 +87,23 @@ class SDRRecorder:
 			port = receiver['Receiver']['port']
 			cmdline = f"rtl_fm -f {freq} -M {mode} {opt} -d {device_index}|socat -u - TCP-LISTEN:{port}"
 			device_index += 1
-			threds.append(threading.Thread(target=self.execute_rtl_fm, args=([client, port, user, cmdline])))
-		for th in threds:
+			th = threading.Thread(target=self.execute_rtl_fm, args=([client, port, user, cmdline]))
 			th.start()
+			threds.append(th)
+		print("\n all process started.")
 
 #			self.execute_rtl_fm(client, port, user, cmdline)
 
 	def execute_rtl_fm(self, client, port, user, cmdline):
 		print(cmdline)
 		stdin, stdout, stderr = client.exec_command(cmdline)
-		for line in stdout:
-			print(line)
 		for error_line in stderr:
+			print(error_line)
 			if "Address already in use" in error_line:
 				self.kill_others_process(client, port, user)
-				self.execute_rtl_fm(client, port, user, cmdline)
+				time.sleep(1)
+				return self.execute_rtl_fm(client, port, user, cmdline)
+		return True
 
 	def kill_others_process(self, client, port, user):
 		stdin, stdout, stderr = client.exec_command(f"lsof -i:{port}")
@@ -109,10 +121,10 @@ class SDRRecorder:
 	def kill_all_rtl_fm_process(self, client):
 		stdin, stdout, stderr = client.exec_command(f"ps aux")
 		for line in stdout:
-			if 'rtl_fm ' in line:
+			if 'rtl_fm ' in line or 'socat ' in line :
 				old_process = re.sub(r'^[a-zA-Z0-9]+\s+', '', line).split(" ")[0]
 				killer = f"kill -9 {old_process}"
-				print(f"kill old rtl_fm process { {killer} }")
+				print(f"kill old rtl_fm / socat process { {killer} }")
 				client.exec_command(killer)
 
 
