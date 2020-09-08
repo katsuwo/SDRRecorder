@@ -85,27 +85,27 @@ class SDRRecorder:
 			mode = receiver['Receiver']['mode']
 			opt = receiver['Receiver']['additional_options']
 			port = receiver['Receiver']['port']
-			cmdline = f"rtl_fm -f {freq} -M {mode} {opt} -d {device_index}|socat -u - TCP-LISTEN:{port}"
+			cmdline = f"rtl_fm -d {device_index} -f{freq} -M {mode} {opt} - |socat -u - TCP-LISTEN:{port}"
 			device_index += 1
-			th = threading.Thread(target=self.execute_rtl_fm, args=([client, port, user, cmdline]))
+			th = threading.Thread(target=self.execute_rtl_fm, args=([client, device_index, port, user, cmdline]))
 			th.start()
 			threds.append(th)
-		print("\n all process started.")
+		print("\nall process started.")
 
 #			self.execute_rtl_fm(client, port, user, cmdline)
 
-	def execute_rtl_fm(self, client, port, user, cmdline):
+	def execute_rtl_fm(self, client, device_index, port, user, cmdline):
 		print(cmdline)
 		stdin, stdout, stderr = client.exec_command(cmdline)
 		for error_line in stderr:
-			print(error_line)
-			if "Address already in use" in error_line:
-				self.kill_others_process(client, port, user)
-				time.sleep(1)
+			if "): Address already in use" in error_line:
+				self.kill_others_process(client, device_index, port, user)
+				time.sleep(3)
 				return self.execute_rtl_fm(client, port, user, cmdline)
 		return True
 
-	def kill_others_process(self, client, port, user):
+	def kill_others_process(self, client, device_index, port, user):
+		# kill socat
 		stdin, stdout, stderr = client.exec_command(f"lsof -i:{port}")
 		linecount = 0
 		for line in stdout:
@@ -114,14 +114,25 @@ class SDRRecorder:
 				pid = line.split("socat ")[1].split(user)[0].replace(" ", "")
 				killer = f"kill -9 {pid}"
 				print(f"other process is using port {port}")
-				print(f"kill other process PID:{pid} [ {killer} ]")
+				print(f"kill other process socat PID:{pid} [ {killer} ]")
 				client.exec_command(killer)
 				break
+
+		# kill rtl_fm
+		stdin, stdout, stderr = client.exec_command(f"ps aux")
+		for line in stdout:
+			if f"rtl_fm -d {device_index}" in line:
+				old_process = re.sub(r'^[a-zA-Z0-9]+\s+', '', line).split(" ")[0]
+				killer = f"kill -9 {old_process}"
+				print(f"kill other process rtl_fm PID:{pid} [ {killer} ]")
+				client.exec_command(killer)
+				break
+
 
 	def kill_all_rtl_fm_process(self, client):
 		stdin, stdout, stderr = client.exec_command(f"ps aux")
 		for line in stdout:
-			if 'rtl_fm ' in line or 'socat ' in line :
+			if 'rtl_fm ' in line or 'socat ' in line:
 				old_process = re.sub(r'^[a-zA-Z0-9]+\s+', '', line).split(" ")[0]
 				killer = f"kill -9 {old_process}"
 				print(f"kill old rtl_fm / socat process { {killer} }")
