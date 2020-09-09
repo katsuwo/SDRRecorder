@@ -4,6 +4,7 @@ import paramiko
 import re
 import threading
 import time
+import subprocess
 
 CONFIGFILE = './config.yaml'
 
@@ -78,7 +79,7 @@ class SDRRecorder:
 
 		self.kill_all_rtl_fm_process(client)
 
-		threds = []
+		rtl_fm_threds = []
 		device_index = 0
 		for receiver in config['Host']['Receivers']:
 			freq = receiver['Receiver']['freq']
@@ -89,19 +90,47 @@ class SDRRecorder:
 			device_index += 1
 			th = threading.Thread(target=self.execute_rtl_fm, args=([client, device_index, port, user, cmdline]))
 			th.start()
-			threds.append(th)
+			rtl_fm_threds.append(th)
 		print("\nall process started.")
+		time.sleep(5)
+		self.execute_sock2wav(config)
 
-#			self.execute_rtl_fm(client, port, user, cmdline)
+	def execute_sock2wav(self, config):
+		sock2wave_path = config['sock2wav']['path']
+		output_path = config['sock2wav']['output_path']
+		ip_addr = config['Host']['ip_addr']
+
+		running_procs = []
+		for rcv in config['Host']['Receivers']:
+
+			# Filename rule
+			# station_name: Tokyo Control West Sector
+			# freq: 120.5M
+			# ↓
+			# TokyoControlWestSector##120@5M##__2020_08_01_11_30_20.wave
+			receiver = rcv['Receiver']
+			wav_file_name = receiver['station_name'].replace(" ", "") + "##" + receiver['freq'].replace(".", "@") + "##"
+			arg = f" -i {ip_addr} -P {receiver['port']} -p {output_path} -s 32000 -S 1000 {wav_file_name}"
+			cmdline = sock2wave_path + arg
+			running_procs.append(subprocess.Popen(cmdline, shell=True, close_fds=False, stdout=subprocess.PIPE))
+
+		while running_procs:
+			for proc in running_procs:
+				retcode = proc.poll()
+				if retcode is not None:
+					running_procs.remove(proc)
+					break
+				print(proc.stdout.readline().decode('utf-8'))
+
 
 	def execute_rtl_fm(self, client, device_index, port, user, cmdline):
-		print(cmdline)
+		print(f"Launch rtl_fm via ssh : {cmdline}\n")
 		stdin, stdout, stderr = client.exec_command(cmdline)
 		for error_line in stderr:
 			if "): Address already in use" in error_line:
 				self.kill_others_process(client, device_index, port, user)
 				time.sleep(3)
-				return self.execute_rtl_fm(client, port, user, cmdline)
+				return self.execute_rtl_fm(client, device_index, port, user, cmdline)
 		return True
 
 	def kill_others_process(self, client, device_index, port, user):
@@ -114,7 +143,7 @@ class SDRRecorder:
 				pid = line.split("socat ")[1].split(user)[0].replace(" ", "")
 				killer = f"kill -9 {pid}"
 				print(f"other process is using port {port}")
-				print(f"kill other process socat PID:{pid} [ {killer} ]")
+				print(f"kill other process socat PID({pid}) : {killer}")
 				client.exec_command(killer)
 				break
 
@@ -124,10 +153,9 @@ class SDRRecorder:
 			if f"rtl_fm -d {device_index}" in line:
 				old_process = re.sub(r'^[a-zA-Z0-9]+\s+', '', line).split(" ")[0]
 				killer = f"kill -9 {old_process}"
-				print(f"kill other process rtl_fm PID:{pid} [ {killer} ]")
+				print(f"kill other process rtl_fm PID({old_process}) : {killer}")
 				client.exec_command(killer)
 				break
-
 
 	def kill_all_rtl_fm_process(self, client):
 		stdin, stdout, stderr = client.exec_command(f"ps aux")
@@ -135,9 +163,8 @@ class SDRRecorder:
 			if 'rtl_fm ' in line or 'socat ' in line:
 				old_process = re.sub(r'^[a-zA-Z0-9]+\s+', '', line).split(" ")[0]
 				killer = f"kill -9 {old_process}"
-				print(f"kill old rtl_fm / socat process { {killer} }")
+				print(f"kill old rtl_fm / socat process : {killer}")
 				client.exec_command(killer)
-
 
 
 if __name__ == '__main__':
