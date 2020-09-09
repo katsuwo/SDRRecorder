@@ -5,6 +5,7 @@ import re
 import threading
 import time
 import subprocess
+import os
 
 CONFIGFILE = './config.yaml'
 
@@ -94,7 +95,7 @@ class SDRRecorder:
 			rtl_fm_threds.append(th)
 
 		print("\nall process started.")
-		time.sleep(5)
+		time.sleep(3)
 		self.execute_sock2wav(config)
 
 	def execute_sock2wav(self, config):
@@ -120,7 +121,11 @@ class SDRRecorder:
 			wav_file_name = receiver['station_name'].replace(" ", "") + "##" + receiver['freq'].replace(".", "@") + "##"
 			arg = f" -i {ip_addr} -P {receiver['port']} -p {output_path} -s 32000 -S 1000 {wav_file_name}"
 			cmdline = sock2wave_path + arg
-			running_procs.append(subprocess.Popen(cmdline, shell=True, stdout=subprocess.PIPE, stderr= subprocess.PIPE))
+			p = subprocess.Popen(cmdline, shell=True, stdout=subprocess.PIPE,bufsize=2)
+
+			# set stdout non blocking
+			running_procs.append(p)
+			time.sleep(1)
 
 		while running_procs:
 			for proc in running_procs:
@@ -130,20 +135,23 @@ class SDRRecorder:
 					break
 
 				# Detect .wav file write is complete.
-				while True:
-					output = proc.stdout.readline().decode('utf-8')
-					if output is None:
-						break
-					if 'file output:' in output:
-						output = output.replace('\n', '').replace('\r', '')
-						wav_full_filename = output.split('file output:')[1]
-						wavfilename = wav_full_filename.split(output_path.replace('~', ''))[1]
-						mp3_fullfilename =  mp3_output_path + wavfilename.replace(".wav", ".mp3")
-						lame_cmd = lame_path + " "  + lame_opt + " " + wav_full_filename + " " + mp3_fullfilename
-						print(lame_cmd)
-						subprocess.Popen(lame_cmd, shell=True)
-					print(proc.stdout.readline().decode('utf-8'))
+				output = proc.stdout.readline().decode('utf-8')
+				if 'file output:' in output:
 
+					# convert wav to mp3
+					output = output.replace('\n', '').replace('\r', '')
+					wav_full_filename = output.split('file output:')[1]
+					wavfilename = wav_full_filename.split(output_path.replace('~', ''))[1]
+					mp3_fullfilename = mp3_output_path + wavfilename.replace(".wav", ".mp3")
+					lame_cmd = lame_path + " " + lame_opt + " " + wav_full_filename + " " + mp3_fullfilename
+
+					print("converting wav to mp3.")
+					print(lame_cmd)
+					subprocess.run(lame_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+					# delete .wav file
+					print(".wav file delete.")
+					os.remove(wav_full_filename)
 
 	def execute_rtl_fm(self, client, device_index, port, user, cmdline):
 		print(f"Launch rtl_fm via ssh : {cmdline}\n")
