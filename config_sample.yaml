@@ -29,4 +29,4 @@ lame:
     options: -b 48
 
 # WBFM受信時パラメータ
-# rtl_fm -f 80.0M -M wbfm -r 32k -E deemp -A fast -p 100
+# rtl_fm -f 80.0M -M wbfm -r 32k -E deemp -A fast -p 100 
