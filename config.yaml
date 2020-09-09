@@ -4,24 +4,29 @@ Host:
     password: mine7720
     Receivers:
         - Receiver:
+            port : 8082
+            station_name: Tokyo Control West Sector
+            freq: 120.5M
+            mode: am
+            additional_options: -s 32000  -p 100
+        - Receiver:
             port : 8081
             station_name: Yokota ATIS
             freq: 128.4M
             mode: am
             additional_options: -s 32000  -p 100
 
-        - Receiver:
-            port : 8082
-            station_name: Tokyo control West sector
-            freq: 120.5M
-            mode: am
-            additional_options: -s 32000  -p 100
-
 sock2wav:
-    path: /home/katsuwo/work/sock2wav/
+    path: /home/katsuwo/work/sock2wav/build/sock2wav
+    output_path: ~/work/SDR_Audio_file/wav
 
 hostkey:
     known_hosts_file: ~/.ssh/known_hosts
+
+lame:
+    output_path:  ~/work/SDR_Audio_file/mp3
+    path: lame
+    options: -b 48
 
 # WBFM受信時パラメータ
 # rtl_fm -f 80.0M -M wbfm -r 32k -E deemp -A fast -p 100

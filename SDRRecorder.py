@@ -73,6 +73,7 @@ class SDRRecorder:
 		password = config['Host']['password']
 		known_hosts = config['hostkey']['known_hosts_file']
 
+		# setup Paramiko ssh client
 		client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 		client.load_host_keys(filename="/home/katsuwo/.ssh/known_hosts")
 		client.connect(host, username=user, password=password)
@@ -91,6 +92,7 @@ class SDRRecorder:
 			th = threading.Thread(target=self.execute_rtl_fm, args=([client, device_index, port, user, cmdline]))
 			th.start()
 			rtl_fm_threds.append(th)
+
 		print("\nall process started.")
 		time.sleep(5)
 		self.execute_sock2wav(config)
@@ -99,6 +101,12 @@ class SDRRecorder:
 		sock2wave_path = config['sock2wav']['path']
 		output_path = config['sock2wav']['output_path']
 		ip_addr = config['Host']['ip_addr']
+
+		lame_path = config['lame']['path']
+		lame_opt = config['lame']['options']
+		mp3_output_path = config['lame']['output_path']
+		if mp3_output_path[-1] is not '/':
+			mp3_output_path = mp3_output_path + "/"
 
 		running_procs = []
 		for rcv in config['Host']['Receivers']:
@@ -112,7 +120,7 @@ class SDRRecorder:
 			wav_file_name = receiver['station_name'].replace(" ", "") + "##" + receiver['freq'].replace(".", "@") + "##"
 			arg = f" -i {ip_addr} -P {receiver['port']} -p {output_path} -s 32000 -S 1000 {wav_file_name}"
 			cmdline = sock2wave_path + arg
-			running_procs.append(subprocess.Popen(cmdline, shell=True, close_fds=False, stdout=subprocess.PIPE))
+			running_procs.append(subprocess.Popen(cmdline, shell=True, stdout=subprocess.PIPE, stderr= subprocess.PIPE))
 
 		while running_procs:
 			for proc in running_procs:
@@ -120,7 +128,21 @@ class SDRRecorder:
 				if retcode is not None:
 					running_procs.remove(proc)
 					break
-				print(proc.stdout.readline().decode('utf-8'))
+
+				# Detect .wav file write is complete.
+				while True:
+					output = proc.stdout.readline().decode('utf-8')
+					if output is None:
+						break
+					if 'file output:' in output:
+						output = output.replace('\n', '').replace('\r', '')
+						wav_full_filename = output.split('file output:')[1]
+						wavfilename = wav_full_filename.split(output_path.replace('~', ''))[1]
+						mp3_fullfilename =  mp3_output_path + wavfilename.replace(".wav", ".mp3")
+						lame_cmd = lame_path + " "  + lame_opt + " " + wav_full_filename + " " + mp3_fullfilename
+						print(lame_cmd)
+						subprocess.Popen(lame_cmd, shell=True)
+					print(proc.stdout.readline().decode('utf-8'))
 
 
 	def execute_rtl_fm(self, client, device_index, port, user, cmdline):
