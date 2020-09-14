@@ -90,7 +90,8 @@ class SDRRecorder:
 			opt = receiver['Receiver']['additional_options']
 			port = receiver['Receiver']['port']
 			device_index = receiver['Receiver']['device_index']
-			cmdline = f"rtl_fm -d {device_index} -f{freq} -M {mode} {opt} - |socat -u - TCP-LISTEN:{port}"
+//			cmdline = f"rtl_fm -d {device_index} -f{freq} -M {mode} {opt} - |socat -u - TCP-LISTEN:{port}"
+		cmdline = f"rtl_tcp -d {device_index} -f{freq} -M {mode} {opt} - |socat -u - TCP-LISTEN:{port}"
 			th = threading.Thread(target=self.execute_rtl_fm, args=([client, device_index, port, user, cmdline]))
 			th.start()
 			rtl_fm_threds.append(th)
