@@ -2,6 +2,7 @@ Host:
     ip_addr: 192.168.0.100
     user: username
     password: your password
+
     Receivers:
         - Receiver:
             port : 8082
@@ -29,4 +30,4 @@ lame:
     options: -b 48
 
 # WBFM受信時パラメータ
-# rtl_fm -f 80.0M -M wbfm -r 32k -E deemp -A fast -p 100 
+# rtl_fm -f 80.0M -M wbfm -r 32k -E deemp -A fast -p 100

@@ -76,7 +76,8 @@ class SDRRecorder:
 
 		# setup Paramiko ssh client
 		client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-		client.load_host_keys(filename="/home/katsuwo/.ssh/known_hosts")
+#		client.load_host_keys(filename="/home/katsuwo/.ssh/known_hosts")
+		client.load_host_keys(filename=known_hosts)
 		client.connect(host, username=user, password=password)
 
 		self.kill_all_rtl_fm_process(client)
@@ -88,8 +89,8 @@ class SDRRecorder:
 			mode = receiver['Receiver']['mode']
 			opt = receiver['Receiver']['additional_options']
 			port = receiver['Receiver']['port']
+			device_index = receiver['Receiver']['device_index']
 			cmdline = f"rtl_fm -d {device_index} -f{freq} -M {mode} {opt} - |socat -u - TCP-LISTEN:{port}"
-			device_index += 1
 			th = threading.Thread(target=self.execute_rtl_fm, args=([client, device_index, port, user, cmdline]))
 			th.start()
 			rtl_fm_threds.append(th)
@@ -125,7 +126,7 @@ class SDRRecorder:
 
 			# set stdout non blocking
 			running_procs.append(p)
-			time.sleep(1)
+			#time.sleep(1)
 
 		while running_procs:
 			for proc in running_procs:
