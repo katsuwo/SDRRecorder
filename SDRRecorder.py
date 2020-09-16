@@ -21,8 +21,29 @@ class SDRRecorder:
 		if not self.check_configuration(self.config):
 			print(f"{CONFIGFILE} is invalid format.")
 			exit(-1)
+
+		# setup Paramiko SSH client
 		self.client = paramiko.SSHClient()
+		self.setup_ssh_client(self.config, self.client)
+
+		# kill old rtl_tcp via ssh
+		self.kill_all_rtl_tcp_process(self.client, process_string="rtl_tcp")
+
+		# kill old socat
+		self.kill_process(process_string="socat ")
+
+		#kill old receiver
+		rcvr_name = self.config['Recorder']['GRC_Recorder']['script_path'].split("/")[-1]
+		self.kill_process(rcvr_name)
+
+		# launch rtl_tcp
 		self.open_receivers(self.config, self.client)
+
+		self.execute_socat(self.config)
+		time.sleep(3)
+		self.execute_GRC_Receivers(self.config)
+		time.sleep(3)
+		self.execute_sock2wav(self.config)
 
 	@staticmethod
 	def read_configuration_file(file_name):
@@ -35,10 +56,13 @@ class SDRRecorder:
 		if 'Host' not in config:
 			return False
 
-		if 'sock2wav' not in config:
+		if 'Recorder' not in config:
 			return False
 
-		sock2wav = config['sock2wav']
+		if 'sock2wav' not in config['Recorder']:
+			return False
+
+		sock2wav = config['Recorder']['sock2wav']
 		if 'path' not in sock2wav:
 			return False
 
@@ -54,7 +78,13 @@ class SDRRecorder:
 			if 'Receiver' not in receiver:
 				return False
 			rcv = receiver['Receiver']
-			if 'port' not in rcv:
+			if 'device_index' not in rcv:
+				return False
+			if 'rtl_tcp_port' not in rcv:
+				return False
+			if 'grc_out_port' not in rcv:
+				return False
+			if 'socat_out_port' not in rcv:
 				return False
 			if 'station_name' not in rcv:
 				return False
@@ -64,56 +94,78 @@ class SDRRecorder:
 				return False
 			if 'additional_options' not in rcv:
 				return False
-			if not rcv['port'] or not rcv['station_name'] or not rcv['mode']:
-				return False
 		return True
 
-	def open_receivers(self, config, client):
+
+	def setup_ssh_client(self, config, client):
 		host = config['Host']['ip_addr']
 		user = config['Host']['user']
 		password = config['Host']['password']
-		known_hosts = config['hostkey']['known_hosts_file']
-
-		# setup Paramiko ssh client
+		known_hosts = config['Recorder']['hostkey']['known_hosts_file']
 		client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-#		client.load_host_keys(filename="/home/katsuwo/.ssh/known_hosts")
 		client.load_host_keys(filename=known_hosts)
 		client.connect(host, username=user, password=password)
 
-		self.kill_all_rtl_fm_process(client)
-
-		rtl_fm_threds = []
-		device_index = 0
+	def open_receivers(self, config, client):
 		for receiver in config['Host']['Receivers']:
-			freq = receiver['Receiver']['freq']
-			mode = receiver['Receiver']['mode']
-			opt = receiver['Receiver']['additional_options']
-			port = receiver['Receiver']['port']
+			rtl_tcp_port = receiver['Receiver']['rtl_tcp_port']
 			device_index = receiver['Receiver']['device_index']
-//			cmdline = f"rtl_fm -d {device_index} -f{freq} -M {mode} {opt} - |socat -u - TCP-LISTEN:{port}"
-		cmdline = f"rtl_tcp -d {device_index} -f{freq} -M {mode} {opt} - |socat -u - TCP-LISTEN:{port}"
-			th = threading.Thread(target=self.execute_rtl_fm, args=([client, device_index, port, user, cmdline]))
-			th.start()
-			rtl_fm_threds.append(th)
+			cmdline = f"rtl_tcp -a 0.0.0.0 -p {rtl_tcp_port} -d {device_index}"
+			self.execute_rtl_tcp(client, cmdline)
 
-		print("\nall process started.")
-		time.sleep(3)
-		self.execute_sock2wav(config)
+		print(f"Started {len(config['Host']['Receivers'])} rtl_tcp processes.")
+		print("-------------------------")
+
+	def execute_socat(self, config):
+		print("Run socat.")
+		for rcv in config['Host']['Receivers']:
+			src_port = rcv['Receiver']['grc_out_port']
+			dest_port = rcv['Receiver']['socat_out_port']
+			cmdline = f"socat udp-listen:{src_port} tcp-listen:{dest_port} &"
+			print(cmdline)
+			subprocess.Popen(cmdline, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+		print("Done.")
+
+	def execute_GRC_Receivers(self, config):
+		pre_execute_cmd = config['Recorder']['GRC_Recorder']['pre_execute_cmd']
+		if pre_execute_cmd is not None:
+			pre_execute_cmd = pre_execute_cmd + ";"
+		else:
+			pre_execute_cmd = ""
+
+		host = config['Host']['ip_addr']
+		for rc in config['Host']['Receivers']:
+			rcvr = rc['Receiver']
+			in_port = rcvr['rtl_tcp_port']
+			freq = rcvr['freq']
+			gain = rcvr['gain']
+			sql = rcvr['squelch']
+			correction = rcvr['freq_correct']
+
+			dest_host = "127.0.0.1"
+			dest_port = rcvr['grc_out_port']
+
+			python_path = config['Recorder']['GRC_Recorder']['python27_path']
+			script_path = config['Recorder']['GRC_Recorder']['script_path']
+
+			arg = f"-f {freq} -g {gain} -s {sql} -c {correction} -H {host} -P {in_port} -d {dest_host} -p {dest_port}"
+			cmdline = f"{pre_execute_cmd}{python_path} {script_path} {arg}"
+			subprocess.Popen(cmdline, shell=True, stdout=subprocess.PIPE, bufsize=2)
+		print("AA")
 
 	def execute_sock2wav(self, config):
-		sock2wave_path = config['sock2wav']['path']
-		output_path = config['sock2wav']['output_path']
+		sock2wave_path = config['Recorder']['sock2wav']['path']
+		output_path = config['Recorder']['sock2wav']['output_path']
 		ip_addr = config['Host']['ip_addr']
 
-		lame_path = config['lame']['path']
-		lame_opt = config['lame']['options']
-		mp3_output_path = config['lame']['output_path']
+		lame_path = config['Recorder']['lame']['path']
+		lame_opt = config['Recorder']['lame']['options']
+		mp3_output_path = config['Recorder']['lame']['output_path']
 		if mp3_output_path[-1] is not '/':
 			mp3_output_path = mp3_output_path + "/"
 
 		running_procs = []
 		for rcv in config['Host']['Receivers']:
-
 			# Filename rule
 			# station_name: Tokyo Control West Sector
 			# freq: 120.5M
@@ -121,13 +173,16 @@ class SDRRecorder:
 			# TokyoControlWestSector##120@5M##__2020_08_01_11_30_20.wave
 			receiver = rcv['Receiver']
 			wav_file_name = receiver['station_name'].replace(" ", "") + "##" + receiver['freq'].replace(".", "@") + "##"
-			arg = f" -i {ip_addr} -P {receiver['port']} -p {output_path} -s 32000 -S 1000 {wav_file_name}"
+			socat_out_port = receiver['socat_out_port']
+			split_time = config['Recorder']['sock2wav']['file_split_Time']
+			arg = f" -i 127.0.0.1 -P {socat_out_port} -p {output_path} -s 48000 -T {split_time} {wav_file_name}"
 			cmdline = sock2wave_path + arg
-			p = subprocess.Popen(cmdline, shell=True, stdout=subprocess.PIPE,bufsize=2)
+			print(cmdline)
+			p = subprocess.Popen(cmdline, shell=True, stdout=subprocess.PIPE, bufsize=2)
 
 			# set stdout non blocking
 			running_procs.append(p)
-			#time.sleep(1)
+			time.sleep(1)
 
 		while running_procs:
 			for proc in running_procs:
@@ -139,7 +194,6 @@ class SDRRecorder:
 				# Detect .wav file write is complete.
 				output = proc.stdout.readline().decode('utf-8')
 				if 'file output:' in output:
-
 					# convert wav to mp3
 					output = output.replace('\n', '').replace('\r', '')
 					wav_full_filename = output.split('file output:')[1]
@@ -155,22 +209,16 @@ class SDRRecorder:
 					print(".wav file delete.")
 					os.remove(wav_full_filename)
 
-	def execute_rtl_fm(self, client, device_index, port, user, cmdline):
-		print(f"Launch rtl_fm via ssh : {cmdline}\n")
+	def execute_rtl_tcp(self, client, cmdline):
+		print(f"Launch rtl_tcp via ssh : {cmdline}")
 		stdin, stdout, stderr = client.exec_command(cmdline)
-		for error_line in stderr:
-			if "): Address already in use" in error_line:
-				self.kill_others_process(client, device_index, port, user)
-				time.sleep(3)
-				return self.execute_rtl_fm(client, device_index, port, user, cmdline)
-		return True
 
 	def kill_others_process(self, client, device_index, port, user):
 		# kill socat
 		stdin, stdout, stderr = client.exec_command(f"lsof -i:{port}")
 		linecount = 0
 		for line in stdout:
-			linecount+=1
+			linecount += 1
 			if linecount == 2:
 				pid = line.split("socat ")[1].split(user)[0].replace(" ", "")
 				killer = f"kill -9 {pid}"
@@ -179,25 +227,55 @@ class SDRRecorder:
 				client.exec_command(killer)
 				break
 
-		# kill rtl_fm
+		# kill rtl_tcp
 		stdin, stdout, stderr = client.exec_command(f"ps aux")
 		for line in stdout:
-			if f"rtl_fm -d {device_index}" in line:
+			if f"rtl_tcp -a {device_index}" in line:
 				old_process = re.sub(r'^[a-zA-Z0-9]+\s+', '', line).split(" ")[0]
 				killer = f"kill -9 {old_process}"
 				print(f"kill other process rtl_fm PID({old_process}) : {killer}")
 				client.exec_command(killer)
 				break
+		print("-------------------------")
 
-	def kill_all_rtl_fm_process(self, client):
+	def kill_all_rtl_tcp_process(self, client, process_string):
+		old_procs = []
 		stdin, stdout, stderr = client.exec_command(f"ps aux")
 		for line in stdout:
-			if 'rtl_fm ' in line or 'socat ' in line:
-				old_process = re.sub(r'^[a-zA-Z0-9]+\s+', '', line).split(" ")[0]
-				killer = f"kill -9 {old_process}"
-				print(f"kill old rtl_fm / socat process : {killer}")
-				client.exec_command(killer)
+			if process_string in line and "/bin/sh -c ps aux" not in line and "grep" not in line:
+				p = re.sub(r'^[a-zA-Z0-9]+\s+', '', line).split(" ")[0]
+				old_procs.append(p)
 
+		for p in old_procs:
+			killer = f"kill -9 {p}"
+			print(f"kill old rtl_tcp : {killer}")
+			client.exec_command(killer)
+		print("-------------------------")
 
+	def kill_process(self, process_string):
+
+		cmdline = f"ps aux | grep {process_string}"
+		print(f"kill {process_string} process.")
+		old_procs = []
+		subp = subprocess.Popen(cmdline, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+		while True:
+			line = subp.stdout.readline().decode('utf-8')
+			if process_string in line and "/bin/sh -c ps aux" not in line and "grep" not in line:
+				print(line)
+				p = re.sub(r'^[a-zA-Z0-9]+\s+', '', line).split(" ")[0]
+				old_procs.append(p)
+			if not line and subp.poll() is not None:
+				break
+
+		if len(old_procs) == 0:
+			print("not found.")
+		for p in old_procs:
+			ret = subprocess.run(["kill", '-9', p])
+			if ret == 0:
+				print(f"PID:{p} was killed.")
+			else:
+				print(f"Failed kill PID:{p}")
+		print("-------------------------")
 if __name__ == '__main__':
 	SDRRecorder()

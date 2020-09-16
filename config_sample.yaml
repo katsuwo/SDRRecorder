@@ -1,33 +1,50 @@
 Host:
-    ip_addr: 192.168.0.100
-    user: username
-    password: your password
+    ip_addr: 192.168.10.1
+    user: user
+    password: passwd
 
     Receivers:
         - Receiver:
-            port : 8082
+            device_index: 0
+            rtl_tcp_port: 1234
+            grc_out_port : 8081
+            socat_out_port : 8091
             station_name: Tokyo Control West Sector
-            freq: 120.5M
+            freq: 120.5e6
+            gain: 49.6
+            squelch: -22.4
+            freq_correct: 32.0
             mode: am
-            additional_options: -s 32000  -p 100
+            additional_options:
+
         - Receiver:
-            port : 8081
+            device_index: 1
+            rtl_tcp_port: 1235
+            grc_out_port: 8082
+            socat_out_port: 8092
             station_name: Yokota ATIS
-            freq: 128.4M
+            freq: 128.4e6
+            gain: 49.6
+            squelch: -15.0
+            freq_correct: 32.0
             mode: am
-            additional_options: -s 32000  -p 100
+            additional_options:
 
-sock2wav:
-    path: /home/yourname/work/sock2wav/build/sock2wav
-    output_path: ~/work/SDR_Audio_file/wav
+Recorder:
+    GRC_Recorder:
+        pre_execute_cmd: export DISPLAY=:0.0
+        script_path: /home/xxxxx/work/GnuRadio_AirbandReceiver/AM_Receiver_NOGUI_with_Commandline.py
+        python27_path: python2
 
-hostkey:
-    known_hosts_file: ~/.ssh/known_hosts
+    sock2wav:
+        path: /home/xxxxx/work/sock2wav/build/sock2wav
+        output_path: /home/xxxxx/work/SDR_Audio_Data/wav
+        file_split_Time: 60
 
-lame:
-    output_path:  ~/work/SDR_Audio_file/mp3
-    path: lame
-    options: -b 48
+    hostkey:
+        known_hosts_file: /home/xxxxx/.ssh/known_hosts
 
-# WBFM受信時パラメータ
-# rtl_fm -f 80.0M -M wbfm -r 32k -E deemp -A fast -p 100
+    lame:
+        output_path: /home/xxxxx/work/SDR_Audio_Data/mp3
+        path: lame
+        options: -b 48
