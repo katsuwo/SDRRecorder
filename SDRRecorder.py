@@ -22,22 +22,33 @@ class SDRRecorder:
 			print(f"{CONFIGFILE} is invalid format.")
 			exit(-1)
 
-		# setup Paramiko SSH client
-		self.client = paramiko.SSHClient()
-		self.setup_ssh_client(self.config, self.client)
+		receiver_is_local = True
+		if self.config['ReceiverHost']['ip_addr'] != "127.0.0.1":
+			receiver_is_local = False
 
-		# kill old rtl_tcp via ssh
-		self.kill_all_rtl_tcp_process(self.client, process_string="rtl_tcp")
+		if receiver_is_local:
+			# kill old rtl_tcp on localhost
+			self.kill_process("rtl_tcp")
+		else:
+			# setup Paramiko SSH client
+			self.client = paramiko.SSHClient()
+			self.setup_ssh_client(self.config, self.client)
+
+			# kill old rtl_tcp via ssh
+			self.kill_all_rtl_tcp_process_via_ssh(self.client, process_string="rtl_tcp")
 
 		# kill old socat
 		self.kill_process(process_string="socat ")
 
-		#kill old receiver
+		# kill old GRC_Recorder
 		rcvr_name = self.config['Recorder']['GRC_Recorder']['script_path'].split("/")[-1]
 		self.kill_process(rcvr_name)
 
 		# launch rtl_tcp
-		self.open_receivers(self.config, self.client)
+		if receiver_is_local:
+			self.open_receivers(config=self.config, client=None)
+		else:
+			self.open_receivers(config=self.config, client=self.client)
 
 		self.execute_socat(self.config)
 		time.sleep(3)
@@ -53,7 +64,7 @@ class SDRRecorder:
 
 	@staticmethod
 	def check_configuration(config):
-		if 'Host' not in config:
+		if 'ReceiverHost' not in config:
 			return False
 
 		if 'Recorder' not in config:
@@ -66,7 +77,7 @@ class SDRRecorder:
 		if 'path' not in sock2wav:
 			return False
 
-		host = config['Host']
+		host = config['ReceiverHost']
 		if 'ip_addr' not in host or 'Receivers' not in host:
 			return False
 
@@ -98,27 +109,31 @@ class SDRRecorder:
 
 
 	def setup_ssh_client(self, config, client):
-		host = config['Host']['ip_addr']
-		user = config['Host']['user']
-		password = config['Host']['password']
+		host = config['ReceiverHost']['ip_addr']
+		user = config['ReceiverHost']['user']
+		password = config['ReceiverHost']['password']
 		known_hosts = config['Recorder']['hostkey']['known_hosts_file']
 		client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 		client.load_host_keys(filename=known_hosts)
 		client.connect(host, username=user, password=password)
 
-	def open_receivers(self, config, client):
-		for receiver in config['Host']['Receivers']:
+	def open_receivers(self, config, client=None):
+		for receiver in config['ReceiverHost']['Receivers']:
 			rtl_tcp_port = receiver['Receiver']['rtl_tcp_port']
 			device_index = receiver['Receiver']['device_index']
 			cmdline = f"rtl_tcp -a 0.0.0.0 -p {rtl_tcp_port} -d {device_index}"
-			self.execute_rtl_tcp(client, cmdline)
 
-		print(f"Started {len(config['Host']['Receivers'])} rtl_tcp processes.")
+			if client:
+				self.execute_rtl_tcp(client, cmdline, local=False)
+			else:
+				self.execute_rtl_tcp(client, cmdline, local=True)
+
+		print(f"Started {len(config['ReceiverHost']['Receivers'])} rtl_tcp processes.")
 		print("-------------------------")
 
 	def execute_socat(self, config):
 		print("Run socat.")
-		for rcv in config['Host']['Receivers']:
+		for rcv in config['ReceiverHost']['Receivers']:
 			src_port = rcv['Receiver']['grc_out_port']
 			dest_port = rcv['Receiver']['socat_out_port']
 			cmdline = f"socat udp-listen:{src_port} tcp-listen:{dest_port} &"
@@ -133,8 +148,8 @@ class SDRRecorder:
 		else:
 			pre_execute_cmd = ""
 
-		host = config['Host']['ip_addr']
-		for rc in config['Host']['Receivers']:
+		host = config['ReceiverHost']['ip_addr']
+		for rc in config['ReceiverHost']['Receivers']:
 			rcvr = rc['Receiver']
 			in_port = rcvr['rtl_tcp_port']
 			freq = rcvr['freq']
@@ -151,21 +166,20 @@ class SDRRecorder:
 			arg = f"-f {freq} -g {gain} -s {sql} -c {correction} -H {host} -P {in_port} -d {dest_host} -p {dest_port}"
 			cmdline = f"{pre_execute_cmd}{python_path} {script_path} {arg}"
 			subprocess.Popen(cmdline, shell=True, stdout=subprocess.PIPE, bufsize=2)
-		print("AA")
 
 	def execute_sock2wav(self, config):
 		sock2wave_path = config['Recorder']['sock2wav']['path']
 		output_path = config['Recorder']['sock2wav']['output_path']
-		ip_addr = config['Host']['ip_addr']
+		ip_addr = config['ReceiverHost']['ip_addr']
 
 		lame_path = config['Recorder']['lame']['path']
 		lame_opt = config['Recorder']['lame']['options']
 		mp3_output_path = config['Recorder']['lame']['output_path']
-		if mp3_output_path[-1] is not '/':
+		if mp3_output_path[-1] != '/':
 			mp3_output_path = mp3_output_path + "/"
 
 		running_procs = []
-		for rcv in config['Host']['Receivers']:
+		for rcv in config['ReceiverHost']['Receivers']:
 			# Filename rule
 			# station_name: Tokyo Control West Sector
 			# freq: 120.5M
@@ -209,9 +223,13 @@ class SDRRecorder:
 					print(".wav file delete.")
 					os.remove(wav_full_filename)
 
-	def execute_rtl_tcp(self, client, cmdline):
-		print(f"Launch rtl_tcp via ssh : {cmdline}")
-		stdin, stdout, stderr = client.exec_command(cmdline)
+	def execute_rtl_tcp(self, client, cmdline, local=False):
+		print(f"Launch rtl_tcp : {cmdline}")
+		if local:
+			subp = subprocess.Popen(cmdline, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+		else:
+			print(f"Launch rtl_tcp via ssh : {cmdline}")
+			stdin, stdout, stderr = client.exec_command(cmdline)
 
 	def kill_others_process(self, client, device_index, port, user):
 		# kill socat
@@ -238,7 +256,7 @@ class SDRRecorder:
 				break
 		print("-------------------------")
 
-	def kill_all_rtl_tcp_process(self, client, process_string):
+	def kill_all_rtl_tcp_process_via_ssh(self, client, process_string):
 		old_procs = []
 		stdin, stdout, stderr = client.exec_command(f"ps aux")
 		for line in stdout:
@@ -253,7 +271,6 @@ class SDRRecorder:
 		print("-------------------------")
 
 	def kill_process(self, process_string):
-
 		cmdline = f"ps aux | grep {process_string}"
 		print(f"kill {process_string} process.")
 		old_procs = []
@@ -277,5 +294,7 @@ class SDRRecorder:
 			else:
 				print(f"Failed kill PID:{p}")
 		print("-------------------------")
+
+
 if __name__ == '__main__':
 	SDRRecorder()
