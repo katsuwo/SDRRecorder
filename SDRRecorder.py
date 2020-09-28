@@ -217,7 +217,9 @@ class SDRRecorder:
 
 					print("converting wav to mp3.")
 					print(lame_cmd)
-					subprocess.run(lame_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+					ret = subprocess.run(lame_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+					if ret.returncode == 0:
+						print("convert success")
 
 					# delete .wav file
 					print(".wav file delete.")
