@@ -6,6 +6,8 @@ import threading
 import time
 import subprocess
 import os
+import boto3
+import datetime
 
 CONFIGFILE = './config.yaml'
 
@@ -36,6 +38,24 @@ class SDRRecorder:
 
 			# kill old rtl_tcp via ssh
 			self.kill_all_rtl_tcp_process_via_ssh(self.client, process_string="rtl_tcp")
+
+		# setup s3 Client
+		try:
+			self.s3 = self.setup_s3_client(config=self.config)
+			resp = self.s3.list_buckets()
+			if resp['ResponseMetadata']['HTTPStatusCode'] != 200:
+				self.s3 = None
+			else:
+				found = False
+				for b in resp['Buckets']:
+					if b['Name'] == self.config['S3_STORAGE']['S3_BUCKET_NAME']:
+						found = True
+						break
+				if not found:
+					self.s3.create_bucket(Bucket=self.config['S3_STORAGE']['S3_BUCKET_NAME'])
+		except ValueError as e:
+			print(e)
+			self.s3 = None
 
 		# kill old socat
 		self.kill_process(process_string="socat ")
@@ -117,6 +137,19 @@ class SDRRecorder:
 		client.load_host_keys(filename=known_hosts)
 		client.connect(host, username=user, password=password)
 
+	def setup_s3_client(self, config):
+		if 'S3_STORAGE' not in config:
+			raise ValueError("S3_STORAGE Section not exists in config file.")
+		if 'S3_access_key_id' not in config['S3_STORAGE']:
+			raise ValueError("S3_access_key_id element not exists in S3_STORAGE section.")
+		if 'S3_secret_access_key' not in config['S3_STORAGE']:
+			raise ValueError("S3_secret_access_key element not exists in S3_STORAGE section.")
+
+		s3_endpoint_erl = self.config['S3_STORAGE']['S3_endpoint_url']
+		os.environ['AWS_ACCESS_KEY_ID'] = self.config['S3_STORAGE']['S3_access_key_id']
+		os.environ['AWS_SECRET_ACCESS_KEY'] = self.config['S3_STORAGE']['S3_secret_access_key']
+		return boto3.client('s3', endpoint_url=s3_endpoint_erl, verify=False)
+
 	def open_receivers(self, config, client=None):
 		for receiver in config['ReceiverHost']['Receivers']:
 			rtl_tcp_port = receiver['Receiver']['rtl_tcp_port']
@@ -184,9 +217,9 @@ class SDRRecorder:
 			# station_name: Tokyo Control West Sector
 			# freq: 120.5M
 			# ↓
-			# TokyoControlWestSector##120@5M##__2020_08_01_11_30_20.wave
+			# TokyoControlWestSector_120_5M__2020_08_01_11_30_20.wave
 			receiver = rcv['Receiver']
-			wav_file_name = receiver['station_name'].replace(" ", "") + "##" + receiver['freq'].replace(".", "@") + "##"
+			wav_file_name = receiver['station_name'].replace(" ", "") + "_" + receiver['freq'].replace(".", "_") + "__"
 			socat_out_port = receiver['socat_out_port']
 			split_time = config['Recorder']['sock2wav']['file_split_Time']
 			arg = f" -i 127.0.0.1 -P {socat_out_port} -p {output_path} -s 48000 -T {split_time} {wav_file_name}"
@@ -196,7 +229,7 @@ class SDRRecorder:
 
 			# set stdout non blocking
 			running_procs.append(p)
-			time.sleep(1)
+#			time.sleep(1)
 
 		while running_procs:
 			for proc in running_procs:
@@ -211,15 +244,22 @@ class SDRRecorder:
 					# convert wav to mp3
 					output = output.replace('\n', '').replace('\r', '')
 					wav_full_filename = output.split('file output:')[1]
-					wavfilename = wav_full_filename.split(output_path.replace('~', ''))[1]
-					mp3_fullfilename = mp3_output_path + wavfilename.replace(".wav", ".mp3")
-					lame_cmd = lame_path + " " + lame_opt + " " + wav_full_filename + " " + mp3_fullfilename
+					wavfilename = wav_full_filename.split(output_path.replace('~', ''))[1].replace('/', '')
+					mp3filename = wavfilename.replace(".wav", ".mp3")
+					mp3_fullfilename = mp3_output_path + mp3filename
+					lame_cmd = lame_path + " " + lame_opt + " " + wav_full_filename + " /" + mp3_fullfilename
 
 					print("converting wav to mp3.")
 					print(lame_cmd)
 					ret = subprocess.run(lame_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 					if ret.returncode == 0:
 						print("convert success")
+						if self.s3 is not None:
+							print("upload to s3 storage")
+							today = str(datetime.date.today())
+							self.s3.upload_file(mp3_fullfilename, self.config['S3_STORAGE']['S3_BUCKET_NAME'],  today + '/' + mp3filename)
+						print(".mp3 file delete.")
+						os.remove(mp3_fullfilename)
 
 					# delete .wav file
 					print(".wav file delete.")

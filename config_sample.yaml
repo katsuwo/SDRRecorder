@@ -48,3 +48,9 @@ Recorder:
         output_path: /home/xxxxx/work/SDR_Audio_Data/mp3
         path: lame
         options: -b 48
+
+S3_STORAGE:
+    S3_endpoint_url: 192.168.0.4:9000
+    S3_access_key_id: your access key
+    S3_secret_access_key: your secret key
+    S3_BUCKET_NAME: SDR
