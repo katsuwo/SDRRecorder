@@ -257,7 +257,7 @@ class SDRRecorder:
                             print("upload to s3 storage")
                             today = str(datetime.date.today())
                             self.s3.upload_file(mp3_fullfilename,
-                                                self.config['S3_STORAGE']['S3_BUCKET_NAME'],
+                                                self.config['S3_STORAGE']['S3_bucket_name'],
                                                 today + '/' + receiver['freq'] + "/" + mp3filename)
                         print(".mp3 file delete.")
                         os.remove(mp3_fullfilename)
