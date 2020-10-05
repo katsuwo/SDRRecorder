@@ -39,7 +39,9 @@ Recorder:
     sock2wav:
         path: /home/xxxxx/work/sock2wav/build/sock2wav
         output_path: /home/xxxxx/work/SDR_Audio_Data/wav
-        file_split_Time: 60
+        # sock2wave will close file at the turn of the minute when file_split_time is set to -1
+        # otherwise, sock2wave writeto file for the number of seconds specified in file_split_time
+        file_split_Time: -1
 
     hostkey:
         known_hosts_file: /home/xxxxx/.ssh/known_hosts
