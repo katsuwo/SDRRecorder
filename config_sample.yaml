@@ -53,4 +53,4 @@ S3_STORAGE:
     S3_endpoint_url: 192.168.0.4:9000
     S3_access_key_id: your access key
     S3_secret_access_key: your secret key
-    S3_BUCKET_NAME: SDR
+    S3_bucket_name: SDR

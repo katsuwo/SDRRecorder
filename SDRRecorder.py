@@ -48,11 +48,11 @@ class SDRRecorder:
 			else:
 				found = False
 				for b in resp['Buckets']:
-					if b['Name'] == self.config['S3_STORAGE']['S3_BUCKET_NAME']:
+					if b['Name'] == self.config['S3_STORAGE']['S3_bucket_name']:
 						found = True
 						break
 				if not found:
-					self.s3.create_bucket(Bucket=self.config['S3_STORAGE']['S3_BUCKET_NAME'])
+					self.s3.create_bucket(Bucket=self.config['S3_STORAGE']['S3_bucket_name'])
 		except ValueError as e:
 			print(e)
 			self.s3 = None
@@ -225,7 +225,7 @@ class SDRRecorder:
 			arg = f" -i 127.0.0.1 -P {socat_out_port} -p {output_path} -s 48000 -T {split_time} {wav_file_name}"
 			cmdline = sock2wave_path + arg
 			print(cmdline)
-			p = subprocess.Popen(cmdline, shell=True, stdout=subprocess.PIPE, bufsize=2)
+			p = subprocess.Popen(cmdline, shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=2)
 
 			# set stdout non blocking
 			running_procs.append(p)
