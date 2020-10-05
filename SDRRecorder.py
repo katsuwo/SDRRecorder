@@ -210,6 +210,12 @@ class SDRRecorder:
         if mp3_output_path[-1] != '/':
             mp3_output_path = mp3_output_path + "/"
 
+        # wait until minute changes
+        print("wait until the minute changes.")
+        while(datetime.datetime.now().second != 0):
+            pass
+        print("start recording.")
+
         running_procs = []
         for rcv in config['ReceiverHost']['Receivers']:
             # Filename rule
