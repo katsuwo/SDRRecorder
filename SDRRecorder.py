@@ -216,9 +216,9 @@ class SDRRecorder:
             # station_name: Tokyo Control West Sector
             # freq: 120.5M
             # ↓
-            # TokyoControlWestSector_120_5M__2020_08_01_11_30_20.wave
+            # 120_5MHz__TokyoControlWestSector___2020_08_01_11_30_20.wave
             receiver = rcv['Receiver']
-            wav_file_name = receiver['freq'].replace(".", "_") + "_" + receiver['station_name'].replace(" ", "") + "__"
+            wav_file_name = receiver['freq'].replace(".", "_").replace('e6', 'MHz') + "__" + receiver['station_name'].replace(" ", "") + "__"
             socat_out_port = receiver['socat_out_port']
             split_time = config['Recorder']['sock2wav']['file_split_Time']
             arg = f" -i 127.0.0.1 -P {socat_out_port} -p {output_path} -s 48000 -T {split_time} {wav_file_name}"
@@ -245,6 +245,7 @@ class SDRRecorder:
                     wav_full_filename = output.split('file output:')[1]
                     wavfilename = wav_full_filename.split(output_path.replace('~', ''))[1].replace('/', '')
                     mp3filename = wavfilename.replace(".wav", ".mp3")
+                    freq = mp3filename.split('__')[0]
                     mp3_fullfilename = mp3_output_path + mp3filename
                     lame_cmd = lame_path + " " + lame_opt + " " + wav_full_filename + " /" + mp3_fullfilename
 
@@ -258,7 +259,7 @@ class SDRRecorder:
                             today = str(datetime.date.today())
                             self.s3.upload_file(mp3_fullfilename,
                                                 self.config['S3_STORAGE']['S3_bucket_name'],
-                                                today + '/' + receiver['freq'] + "/" + mp3filename)
+                                                today + '/' + freq + "/" + mp3filename)
                         print(".mp3 file delete.")
                         os.remove(mp3_fullfilename)
 
