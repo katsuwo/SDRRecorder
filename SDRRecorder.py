@@ -203,12 +203,11 @@ class SDRRecorder:
         sock2wave_path = config['Recorder']['sock2wav']['path']
         output_path = config['Recorder']['sock2wav']['output_path']
         ip_addr = config['ReceiverHost']['ip_addr']
+        enc_cmdline = config['Recorder']['encode']['cmd']
+        enc_output_path = config['Recorder']['encode']['output_path']
 
-        lame_path = config['Recorder']['lame']['path']
-        lame_opt = config['Recorder']['lame']['options']
-        mp3_output_path = config['Recorder']['lame']['output_path']
-        if mp3_output_path[-1] != '/':
-            mp3_output_path = mp3_output_path + "/"
+        if enc_output_path[-1] != '/':
+            enc_output_path = enc_output_path + "/"
 
         # wait until minute changes
         print("wait until the minute changes.")
@@ -246,28 +245,29 @@ class SDRRecorder:
                 # Detect .wav file write complete.
                 output = proc.stdout.readline().decode('utf-8')
                 if 'file output:' in output:
-                    # convert wav to mp3
+
+                    # .wav file encode
                     output = output.replace('\n', '').replace('\r', '')
                     wav_full_filename = output.split('file output:')[1]
-                    wavfilename = wav_full_filename.split(output_path.replace('~', ''))[1].replace('/', '')
-                    mp3filename = wavfilename.replace(".wav", ".mp3")
-                    freq = mp3filename.split('__')[0]
-                    mp3_fullfilename = mp3_output_path + mp3filename
-                    lame_cmd = lame_path + " " + lame_opt + " " + wav_full_filename + " /" + mp3_fullfilename
+                    wav_filename = wav_full_filename.split(output_path.replace('~', ''))[1].replace('/', '')
+                    enc_filename = wav_filename.replace(".wav", config['Recorder']['encode']['output_ext'])
+                    freq = enc_filename.split('__')[0]
+                    enc_fullfilename = enc_output_path + enc_filename
+                    encode_cmd = enc_cmdline.replace("%INPUT", wav_full_filename).replace("%OUTPUT", enc_fullfilename)
 
-                    print("converting wav to mp3.")
-                    print(lame_cmd)
-                    ret = subprocess.run(lame_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    print("encoding.")
+                    print(encode_cmd)
+                    ret = subprocess.run(encode_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                     if ret.returncode == 0:
                         print("convert success")
                         if self.s3 is not None:
                             print("upload to s3 storage")
                             today = str(datetime.date.today())
-                            self.s3.upload_file(mp3_fullfilename,
+                            self.s3.upload_file(enc_fullfilename,
                                                 self.config['S3_STORAGE']['S3_bucket_name'],
-                                                today + '/' + freq + "/" + mp3filename)
-                        print(".mp3 file delete.")
-                        os.remove(mp3_fullfilename)
+                                                today + '/' + freq + "/" + enc_filename)
+                        print(f"config['Recorder']['encode']['output_ext'] file delete.")
+                        os.remove(enc_fullfilename)
 
                     # delete .wav file
                     print(".wav file delete.")

@@ -46,10 +46,10 @@ Recorder:
     hostkey:
         known_hosts_file: /home/xxxxx/.ssh/known_hosts
 
-    lame:
-        output_path: /home/xxxxx/work/SDR_Audio_Data/mp3
-        path: lame
-        options: -b 48
+    encode:
+        output_path: /home/xxxxx/work/SDR_Audio_Data/enc
+        output_ext: .ogg
+        cmd: oggenc -q 5 -o %OUTPUT %INPUT
 
 S3_STORAGE:
     S3_endpoint_url: 192.168.0.4:9000
